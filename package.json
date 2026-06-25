@@ -9,9 +9,7 @@
     "lint": "eslint ."
   },
   "dependencies": {
-    "@prisma/client": "^6.19.3",
     "next": "latest",
-    "prisma": "^6.19.3",
     "react": "latest",
     "react-dom": "latest"
   },

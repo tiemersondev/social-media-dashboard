@@ -1,46 +1,17 @@
-import Link from "next/link";
-import { getSocialDataMode } from "@/lib/social/config";
-import { mapDashboardSummaryToCards } from "@/lib/social/dashboard-mapper";
-import { getDashboardSummary } from "@/lib/social/dashboard-service";
+import { overviewStats, stats } from "@/data/dashboard";
 import { DashboardHeader } from "./DashboardHeader";
 import { OverviewCard } from "./OverviewCard";
 import { StatCard } from "./StatCard";
 
-export async function DashboardPage() {
-  const summary = await getDashboardSummary();
-  const { stats, overviewStats } = mapDashboardSummaryToCards(summary);
-  const showConnectCta =
-    getSocialDataMode() === "api" && summary.hasConnections === false;
-  const showPartialWarning =
-    getSocialDataMode() === "api" &&
-    summary.hasConnections === true &&
-    summary.source === "mixed";
+const totalFollowers = 23004;
 
+export function DashboardPage() {
   return (
     <main className="relative min-h-screen overflow-hidden bg-dashboard-bg pb-11 text-dashboard-text">
       <div className="absolute inset-x-0 top-0 h-[235px] rounded-b-[22px] bg-dashboard-top md:h-[244px]" />
 
       <div className="relative mx-auto w-full max-w-[1110px] px-6 md:px-8 xl:px-0">
-        <DashboardHeader totalFollowers={summary.totalFollowers} />
-
-        {showConnectCta ? (
-          <div className="relative z-10 mt-8 rounded-[5px] bg-dashboard-card p-4 text-sm font-bold text-dashboard-muted">
-            Conecte suas redes sociais para visualizar dados reais.{" "}
-            <Link href="/connections" className="text-dashboard-text underline">
-              Gerenciar conexoes
-            </Link>
-          </div>
-        ) : null}
-
-        {showPartialWarning ? (
-          <div className="relative z-10 mt-8 rounded-[5px] bg-dashboard-card p-4 text-sm font-bold text-dashboard-muted">
-            Algumas redes retornaram dados parciais ou falharam na ultima
-            sincronizacao.{" "}
-            <Link href="/connections" className="text-dashboard-text underline">
-              Ver conexoes
-            </Link>
-          </div>
-        ) : null}
+        <DashboardHeader totalFollowers={totalFollowers} />
 
         <section
           aria-label="Follower totals"
