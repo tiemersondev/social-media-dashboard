@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireTokenEncryptionKey } from "@/lib/social/config";
 import { syncSocialProviders } from "@/lib/social/dashboard-service";
+import { logOAuthDebug } from "@/lib/social/oauth/debug";
 import { encryptToken } from "@/lib/social/token-crypto";
 import { socialTokenStore, type StoredSocialToken } from "@/lib/social/token-store";
 import { clearOAuthCookies, getPkceVerifier, validateOAuthState } from "@/lib/social/oauth/state";
@@ -27,6 +28,42 @@ type RouteContext = {
 
 function isOAuthProvider(provider: string): provider is OAuthProvider {
   return provider === "meta" || provider === "x" || provider === "youtube";
+}
+
+function redirectToConnections(request: Request, params: Record<string, string>) {
+  const url = new URL("/connections", request.url);
+
+  for (const [key, value] of Object.entries(params)) {
+    url.searchParams.set(key, value);
+  }
+
+  return NextResponse.redirect(url);
+}
+
+function getOAuthErrorCode(error: unknown) {
+  const message = error instanceof Error ? error.message.toLowerCase() : "";
+
+  if (message.includes("state")) {
+    return "state";
+  }
+
+  if (message.includes("code")) {
+    return "code";
+  }
+
+  if (message.includes("credential") || message.includes("encryption")) {
+    return "config";
+  }
+
+  if (message.includes("token exchange")) {
+    return "token";
+  }
+
+  if (message.includes("permission") || message.includes("scope")) {
+    return "permission";
+  }
+
+  return "callback";
 }
 
 function expiresAtFromSeconds(seconds?: number) {
@@ -74,7 +111,9 @@ function createStoredToken(input: {
 
 async function handleMetaCallback(code: string) {
   const token = await exchangeMetaCodeForToken(code);
+  logOAuthDebug("meta", "callback", { tokenExchange: "success" });
   const pages = await getMetaPages(token.access_token);
+  logOAuthDebug("meta", "callback", { pagesFound: pages.length });
   const firstPage = pages[0];
   const expiresAt = expiresAtFromSeconds(token.expires_in);
 
@@ -96,6 +135,9 @@ async function handleMetaCallback(code: string) {
 
   const instagramPage = pages.find((page) => page.instagram_business_account);
   const instagram = instagramPage?.instagram_business_account;
+  logOAuthDebug("meta", "callback", {
+    instagramBusinessAccountFound: Boolean(instagram),
+  });
 
   if (instagram && instagramPage?.access_token) {
     await socialTokenStore.save(
@@ -122,7 +164,9 @@ async function handleXCallback(code: string) {
   }
 
   const token = await exchangeXCodeForToken(code, verifier);
+  logOAuthDebug("x", "callback", { tokenExchange: "success" });
   const account = await getXAuthenticatedUser(token.access_token);
+  logOAuthDebug("x", "callback", { userLoaded: Boolean(account) });
 
   await socialTokenStore.save(
     createStoredToken({
@@ -142,7 +186,9 @@ async function handleXCallback(code: string) {
 
 async function handleYouTubeCallback(code: string) {
   const token = await exchangeYouTubeCodeForToken(code);
+  logOAuthDebug("youtube", "callback", { tokenExchange: "success" });
   const channel = await getYouTubeChannel(token.access_token);
+  logOAuthDebug("youtube", "callback", { channelLoaded: Boolean(channel) });
 
   await socialTokenStore.save(
     createStoredToken({
@@ -165,13 +211,15 @@ export async function GET(request: Request, context: RouteContext) {
   const requestUrl = new URL(request.url);
 
   if (!isOAuthProvider(provider)) {
-    return NextResponse.redirect(new URL("/connections?error=provider", request.url));
+    return redirectToConnections(request, { error: "provider" });
   }
 
   try {
     requireTokenEncryptionKey();
     const code = requestUrl.searchParams.get("code");
+    logOAuthDebug(provider, "callback", { receivedCode: Boolean(code) });
     await validateOAuthState(provider, requestUrl.searchParams.get("state"));
+    logOAuthDebug(provider, "callback", { stateValid: true });
 
     if (!code) {
       throw new Error("Missing OAuth code.");
@@ -186,13 +234,14 @@ export async function GET(request: Request, context: RouteContext) {
     }
 
     await clearOAuthCookies(provider);
-    return NextResponse.redirect(
-      new URL(`/connections?connected=${provider}`, request.url),
-    );
+    return redirectToConnections(request, { connected: provider });
   } catch (error) {
     const message = error instanceof Error ? error.message : "OAuth callback failed.";
     console.error(`[social:oauth:callback:${provider}] ${message}`);
     await clearOAuthCookies(provider);
-    return NextResponse.redirect(new URL(`/connections?error=${provider}`, request.url));
+    return redirectToConnections(request, {
+      error: getOAuthErrorCode(error),
+      provider,
+    });
   }
 }

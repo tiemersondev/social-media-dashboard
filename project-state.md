@@ -1,5 +1,45 @@
 # Estado do Projeto
 
+## Atualizacao 2026-06-25 - OAuth local
+
+| Item | Status | Observacoes |
+| --- | --- | --- |
+| `.env.local` de desenvolvimento | Concluido parcial | Criado localmente e ignorado pelo Git, com `APP_BASE_URL=http://localhost:3000`, `SOCIAL_DATA_MODE=api`, `SOCIAL_AUTH_DEBUG=true`, `DATABASE_URL=` vazio e `TOKEN_ENCRYPTION_KEY` gerada. Credenciais OAuth reais ainda precisam ser preenchidas. |
+| Validacao de env | Concluido | `TOKEN_ENCRYPTION_KEY` agora exige minimo de 32 caracteres em modo API; erros de credenciais OAuth indicam campos ausentes. |
+| OAuth start local | Concluido | YouTube, X e Meta validam config antes de salvar state; com credenciais dummy montam URLs oficiais de autorizacao. |
+| Cookies OAuth | Concluido | State e PKCE usam cookies HttpOnly, `SameSite=Lax`, `path=/`, `maxAge=10min` e `secure=false` em localhost HTTP. |
+| Logs seguros | Concluido | `SOCIAL_AUTH_DEBUG=true` mostra provider, etapa, redirect URI, scopes e flags booleanas sem tokens, secrets, state, code completo ou verifier. |
+| Callback OAuth | Concluido | Callback registra etapas seguras, diferencia erros de `state`, `code`, `config`, `token` e `permission`, e limpa cookies no fim. |
+| YouTube | Concluido parcial | Start monta URL com scopes esperados e `access_type=offline`/`prompt=consent`; lookup inicial de canal usa `snippet,statistics`. Ponta a ponta real depende de credenciais Google. |
+| X/Twitter | Concluido parcial | Start monta URL OAuth 2.0 com PKCE S256 e scopes `users.read tweet.read offline.access`. Ponta a ponta real depende de credenciais X. |
+| Meta/Facebook/Instagram | Concluido parcial | Start monta URL Meta v22.0 com scopes esperados. Ponta a ponta real depende de credenciais Meta e conta com Page/Instagram profissional. |
+| Debug sem tokens | Concluido | `/api/social/debug/connections` disponivel somente fora de producao com `SOCIAL_AUTH_DEBUG=true`; retorna status e flags de token, sem tokens. |
+| `/connections` dinamico | Concluido | Pagina ja usa `force-dynamic` e agora mostra mensagens de erro especificas. |
+| Token store local | Concluido | `.social-tokens.json` e snapshots continuam ignorados pelo Git; store local e usado quando `DATABASE_URL` esta vazio. |
+
+## Testes executados nesta atualizacao
+
+- `npm.cmd run lint`: aprovado.
+- `npm.cmd run build`: aprovado.
+- `npm.cmd run test`: falhou porque nao existe script `test` no `package.json`.
+- Dev server temporario em `http://localhost:3000`: aprovado.
+- `/connections`: `200`.
+- `/api/social/summary`: `200`, resposta segura sem tokens.
+- `/api/social/debug/connections`: `200` em desenvolvimento com debug ativo, sem tokens.
+- `/api/auth/social/youtube/start`, `/x/start`, `/meta/start` com credenciais vazias: `307` para `/connections?error=config&provider=...`.
+- `/api/auth/social/youtube/start`, `/x/start`, `/meta/start` com credenciais dummy no processo: `307` para URLs oficiais de Google, X e Meta, sem chamar APIs reais.
+
+## Proxima etapa imediata
+
+1. Preencher `.env.local` com credenciais reais das plataformas.
+2. Cadastrar exatamente estes redirects:
+   - `http://localhost:3000/api/auth/social/youtube/callback`
+   - `http://localhost:3000/api/auth/social/x/callback`
+   - `http://localhost:3000/api/auth/social/meta/callback`
+3. Reiniciar `npm.cmd run dev`.
+4. Testar YouTube ponta a ponta primeiro, depois X e Meta.
+5. Adicionar infraestrutura de testes automatizados, pois o projeto ainda nao possui script `test`.
+
 ## Status geral
 
 Etapa de integracao social para producao concluida no codigo. O projeto agora inicia OAuth real, troca `code` por tokens, criptografa tokens, usa Prisma/PostgreSQL quando `DATABASE_URL` existe, mantem fallback local apenas para desenvolvimento, renova tokens de X e YouTube, salva snapshots de metricas e alimenta `/dashboard` com dados reais em `SOCIAL_DATA_MODE=api`.

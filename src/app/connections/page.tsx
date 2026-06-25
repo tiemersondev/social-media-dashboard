@@ -10,8 +10,23 @@ type ConnectionsPageProps = {
   searchParams?: Promise<{
     connected?: string;
     error?: string;
+    provider?: string;
     disconnected?: string;
   }>;
+};
+
+const errorMessages: Record<string, string> = {
+  provider: "Provider invalido para OAuth.",
+  config:
+    "Configuracao OAuth incompleta. Confira .env.local, APP_BASE_URL, redirects e reinicie o Next.",
+  state:
+    "State OAuth invalido. Confira se o cookie foi salvo, se Secure esta desligado em localhost HTTP e se o callback usa a mesma porta.",
+  code: "A plataforma nao retornou authorization code.",
+  token:
+    "Falha ao trocar code por token. Confira client secret, redirect URI e permissoes do app na plataforma.",
+  permission:
+    "Permissao ou escopo insuficiente para carregar a conta. Revise os scopes aprovados na plataforma.",
+  callback: "Nao foi possivel concluir o callback OAuth.",
 };
 
 export default async function ConnectionsPage({ searchParams }: ConnectionsPageProps) {
@@ -45,14 +60,15 @@ export default async function ConnectionsPage({ searchParams }: ConnectionsPageP
 
         {params.connected ? (
           <p className="relative z-10 mt-6 rounded-[5px] bg-dashboard-card p-4 text-sm font-bold text-lime-dashboard">
-            Conexao autorizada com sucesso.
+            Conexao autorizada com sucesso para {params.connected}.
           </p>
         ) : null}
 
         {params.error ? (
           <p className="relative z-10 mt-6 rounded-[5px] bg-dashboard-card p-4 text-sm font-bold text-rose-dashboard">
-            Nao foi possivel concluir a conexao. Verifique as credenciais e
-            permissoes do provider.
+            {errorMessages[params.error] ??
+              "Nao foi possivel concluir a conexao. Verifique as credenciais e permissoes do provider."}
+            {params.provider ? ` Provider: ${params.provider}.` : ""}
           </p>
         ) : null}
 

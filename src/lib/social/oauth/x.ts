@@ -1,6 +1,6 @@
 import "server-only";
 
-import { getOAuthConfig, requireOAuthConfig } from "../config";
+import { requireOAuthConfig } from "../config";
 
 const X_SCOPES = ["users.read", "tweet.read", "offline.access"];
 
@@ -73,5 +73,5 @@ export async function getXAuthenticatedUser(accessToken: string) {
 }
 
 export function getXScopes() {
-  return getOAuthConfig("x").clientId ? X_SCOPES : [];
+  return X_SCOPES;
 }

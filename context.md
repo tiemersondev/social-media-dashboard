@@ -1,5 +1,37 @@
 # Contexto do Projeto
 
+## Atualizacao de OAuth local em 2026-06-25
+
+O fluxo OAuth local foi revisado para desenvolvimento em
+`http://localhost:3000` com `SOCIAL_DATA_MODE=api`.
+
+Alteracoes aplicadas:
+
+- Criado `.env.local` local e ignorado pelo Git com `APP_BASE_URL=http://localhost:3000`, `SOCIAL_DATA_MODE=api`, `SOCIAL_AUTH_DEBUG=true`, `DATABASE_URL=` vazio para usar o store local e uma `TOKEN_ENCRYPTION_KEY` gerada localmente. As credenciais OAuth continuam vazias e precisam ser preenchidas pelo desenvolvedor.
+- `.env.example` agora documenta `SOCIAL_AUTH_DEBUG=false` e exige `TOKEN_ENCRYPTION_KEY` com pelo menos 32 caracteres.
+- `requireTokenEncryptionKey()` agora falha de forma explicita quando a chave esta ausente ou curta demais em modo API.
+- `/api/auth/social/[provider]/start` valida credenciais antes de salvar cookie/state, monta redirects oficiais para YouTube, X e Meta, e retorna `/connections?error=config&provider=...` quando faltar credencial.
+- Logs seguros foram adicionados com `SOCIAL_AUTH_DEBUG=true`, sem imprimir tokens, secrets, state, authorization code ou code verifier.
+- Validacao de state agora registra apenas flags seguras: cookie existe, query state existe e state bateu.
+- X OAuth mantem PKCE S256 e registra apenas se o verifier foi encontrado.
+- YouTube OAuth inicial agora busca canal com `part=snippet,statistics`.
+- `/connections` exibe mensagens especificas para erros de `config`, `state`, `code`, `token`, `permission` e provider invalido.
+- Adicionada rota de debug segura, somente em desenvolvimento e com `SOCIAL_AUTH_DEBUG=true`: `/api/social/debug/connections`. Ela lista conexoes, status e flags `hasAccessToken`/`hasRefreshToken`, sem retornar tokens.
+
+Redirect URIs que precisam estar cadastradas exatamente nas plataformas:
+
+```txt
+http://localhost:3000/api/auth/social/youtube/callback
+http://localhost:3000/api/auth/social/x/callback
+http://localhost:3000/api/auth/social/meta/callback
+```
+
+Validacao local executada:
+
+- Com credenciais vazias, os endpoints `/api/auth/social/{provider}/start` retornam `307` para `/connections?error=config&provider=...`.
+- Com credenciais dummy em variaveis de ambiente do processo, os endpoints `/start` montam URLs oficiais de Google, X e Meta, com `redirect_uri=http://localhost:3000/...`, scopes esperados e cookies OAuth `HttpOnly`, `SameSite=Lax`, `path=/`, `secure=false` em localhost.
+- Nao foi possivel validar autorizacao real ponta a ponta porque `.env.local` ainda nao possui `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `X_CLIENT_ID`, `X_CLIENT_SECRET`, `META_CLIENT_ID` e `META_CLIENT_SECRET` reais.
+
 ## Etapa atual
 
 Projeto Next.js com App Router, TypeScript e Tailwind CSS. O dashboard visual do desafio Frontend Mentor foi preservado. A camada social agora possui OAuth real, persistencia Prisma/PostgreSQL para producao, criptografia de tokens, refresh automatico quando o provider entrega refresh token, snapshots de metricas e fallback mock apenas quando `SOCIAL_DATA_MODE=mock`.

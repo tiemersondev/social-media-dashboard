@@ -20,14 +20,30 @@ export function getMetaGraphVersion() {
   return process.env.META_GRAPH_API_VERSION ?? "v22.0";
 }
 
+export function isSocialAuthDebugEnabled() {
+  return process.env.SOCIAL_AUTH_DEBUG === "true";
+}
+
 export function hasDatabaseUrl() {
   return Boolean(process.env.DATABASE_URL);
 }
 
 export function requireTokenEncryptionKey() {
-  if (getSocialDataMode() === "api" && !process.env.TOKEN_ENCRYPTION_KEY) {
+  if (getSocialDataMode() !== "api") {
+    return;
+  }
+
+  const key = process.env.TOKEN_ENCRYPTION_KEY;
+
+  if (!key) {
     throw new Error(
       "TOKEN_ENCRYPTION_KEY is required when SOCIAL_DATA_MODE=api.",
+    );
+  }
+
+  if (key.length < 32) {
+    throw new Error(
+      "TOKEN_ENCRYPTION_KEY must be at least 32 characters long when SOCIAL_DATA_MODE=api.",
     );
   }
 }
@@ -64,9 +80,20 @@ export function getOAuthConfig(provider: OAuthProvider) {
 
 export function requireOAuthConfig(provider: OAuthProvider) {
   const config = getOAuthConfig(provider);
+  const missing = [
+    ["clientId", config.clientId],
+    ["clientSecret", config.clientSecret],
+    ["redirectUri", config.redirectUri],
+  ]
+    .filter(([, value]) => !value)
+    .map(([name]) => name);
 
-  if (!config.clientId || !config.clientSecret || !config.redirectUri) {
-    throw new Error(`OAuth credentials are not configured for ${provider}.`);
+  if (missing.length > 0) {
+    throw new Error(
+      `OAuth credentials are not configured for ${provider}. Missing: ${missing.join(
+        ", ",
+      )}.`,
+    );
   }
 
   return config as {

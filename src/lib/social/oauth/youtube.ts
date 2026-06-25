@@ -21,6 +21,12 @@ export type YouTubeChannel = {
     title?: string;
     customUrl?: string;
   };
+  statistics?: {
+    subscriberCount?: string;
+    viewCount?: string;
+    videoCount?: string;
+    hiddenSubscriberCount?: boolean;
+  };
 };
 
 export function buildYouTubeAuthorizationUrl(state: string) {
@@ -59,7 +65,7 @@ export async function exchangeYouTubeCodeForToken(code: string) {
 
 export async function getYouTubeChannel(accessToken: string) {
   const url = new URL("https://www.googleapis.com/youtube/v3/channels");
-  url.searchParams.set("part", "snippet");
+  url.searchParams.set("part", "snippet,statistics");
   url.searchParams.set("mine", "true");
 
   const response = await fetch(url, {
