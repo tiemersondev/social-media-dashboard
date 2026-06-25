@@ -1,6 +1,10 @@
 import { ThemeToggle } from "./ThemeToggle";
 
-export function DashboardHeader() {
+type DashboardHeaderProps = {
+  totalFollowers: number;
+};
+
+export function DashboardHeader({ totalFollowers }: DashboardHeaderProps) {
   return (
     <header className="relative z-10 pt-9 md:flex md:items-start md:justify-between md:pt-9">
       <div className="border-b border-dashboard-divider pb-6 md:border-0 md:pb-0">
@@ -8,7 +12,7 @@ export function DashboardHeader() {
           Social Media Dashboard
         </h1>
         <p className="mt-2 text-sm font-bold leading-none text-dashboard-muted">
-          Total Followers: 23,004
+          Total Followers: {new Intl.NumberFormat("en-US").format(totalFollowers)}
         </p>
       </div>
       <div className="pt-4 md:pt-[3px]">

@@ -20,6 +20,8 @@ pnpm-debug.log*
 
 # local env files
 .env*.local
+.social-tokens.json
+.social-metric-snapshots.json
 
 # vercel
 .vercel

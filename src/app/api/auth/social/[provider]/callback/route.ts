@@ -1,0 +1,198 @@
+import { NextResponse } from "next/server";
+import { requireTokenEncryptionKey } from "@/lib/social/config";
+import { syncSocialProviders } from "@/lib/social/dashboard-service";
+import { encryptToken } from "@/lib/social/token-crypto";
+import { socialTokenStore, type StoredSocialToken } from "@/lib/social/token-store";
+import { clearOAuthCookies, getPkceVerifier, validateOAuthState } from "@/lib/social/oauth/state";
+import {
+  exchangeMetaCodeForToken,
+  getMetaPages,
+  getMetaScopes,
+} from "@/lib/social/oauth/meta";
+import {
+  exchangeXCodeForToken,
+  getXAuthenticatedUser,
+  getXScopes,
+} from "@/lib/social/oauth/x";
+import {
+  exchangeYouTubeCodeForToken,
+  getYouTubeChannel,
+  getYouTubeScopes,
+} from "@/lib/social/oauth/youtube";
+import type { OAuthProvider, SocialProvider } from "@/lib/social/types";
+
+type RouteContext = {
+  params: Promise<{ provider: string }>;
+};
+
+function isOAuthProvider(provider: string): provider is OAuthProvider {
+  return provider === "meta" || provider === "x" || provider === "youtube";
+}
+
+function expiresAtFromSeconds(seconds?: number) {
+  if (!seconds) {
+    return null;
+  }
+
+  return new Date(Date.now() + seconds * 1000).toISOString();
+}
+
+function createStoredToken(input: {
+  provider: SocialProvider;
+  accountId?: string;
+  username?: string;
+  displayName?: string;
+  profileUrl?: string;
+  accessToken: string;
+  refreshToken?: string | null;
+  tokenType?: string;
+  scopes?: string[];
+  expiresAt?: string | null;
+}): StoredSocialToken {
+  const now = new Date().toISOString();
+
+  return {
+    provider: input.provider,
+    accountId: input.accountId,
+    username: input.username,
+    displayName: input.displayName,
+    profileUrl: input.profileUrl,
+    accessTokenEncrypted: encryptToken(input.accessToken),
+    refreshTokenEncrypted: input.refreshToken
+      ? encryptToken(input.refreshToken)
+      : null,
+    tokenType: input.tokenType,
+    scopes: input.scopes,
+    expiresAt: input.expiresAt ?? null,
+    createdAt: now,
+    updatedAt: now,
+    lastSyncedAt: null,
+    status: "connected",
+    errorMessage: null,
+  };
+}
+
+async function handleMetaCallback(code: string) {
+  const token = await exchangeMetaCodeForToken(code);
+  const pages = await getMetaPages(token.access_token);
+  const firstPage = pages[0];
+  const expiresAt = expiresAtFromSeconds(token.expires_in);
+
+  if (firstPage) {
+    await socialTokenStore.save(
+      createStoredToken({
+        provider: "facebook",
+        accountId: firstPage.id,
+        username: firstPage.name,
+        displayName: firstPage.name,
+        accessToken: firstPage.access_token ?? token.access_token,
+        tokenType: token.token_type,
+        scopes: getMetaScopes(),
+        expiresAt,
+      }),
+    );
+    await syncSocialProviders({ provider: "facebook", force: true });
+  }
+
+  const instagramPage = pages.find((page) => page.instagram_business_account);
+  const instagram = instagramPage?.instagram_business_account;
+
+  if (instagram && instagramPage?.access_token) {
+    await socialTokenStore.save(
+      createStoredToken({
+        provider: "instagram",
+        accountId: instagram.id,
+        username: instagram.username ? `@${instagram.username}` : undefined,
+        displayName: instagram.username,
+        accessToken: instagramPage.access_token,
+        tokenType: token.token_type,
+        scopes: getMetaScopes(),
+        expiresAt,
+      }),
+    );
+    await syncSocialProviders({ provider: "instagram", force: true });
+  }
+}
+
+async function handleXCallback(code: string) {
+  const verifier = await getPkceVerifier("x");
+
+  if (!verifier) {
+    throw new Error("Missing X PKCE verifier.");
+  }
+
+  const token = await exchangeXCodeForToken(code, verifier);
+  const account = await getXAuthenticatedUser(token.access_token);
+
+  await socialTokenStore.save(
+    createStoredToken({
+      provider: "x",
+      accountId: account.id,
+      username: `@${account.username}`,
+      displayName: account.name,
+      accessToken: token.access_token,
+      refreshToken: token.refresh_token,
+      tokenType: token.token_type,
+      scopes: token.scope?.split(" ") ?? getXScopes(),
+      expiresAt: expiresAtFromSeconds(token.expires_in),
+    }),
+  );
+  await syncSocialProviders({ provider: "x", force: true });
+}
+
+async function handleYouTubeCallback(code: string) {
+  const token = await exchangeYouTubeCodeForToken(code);
+  const channel = await getYouTubeChannel(token.access_token);
+
+  await socialTokenStore.save(
+    createStoredToken({
+      provider: "youtube",
+      accountId: channel?.id,
+      username: channel?.snippet?.customUrl ?? channel?.snippet?.title,
+      displayName: channel?.snippet?.title,
+      accessToken: token.access_token,
+      refreshToken: token.refresh_token,
+      tokenType: token.token_type,
+      scopes: token.scope?.split(" ") ?? getYouTubeScopes(),
+      expiresAt: expiresAtFromSeconds(token.expires_in),
+    }),
+  );
+  await syncSocialProviders({ provider: "youtube", force: true });
+}
+
+export async function GET(request: Request, context: RouteContext) {
+  const { provider } = await context.params;
+  const requestUrl = new URL(request.url);
+
+  if (!isOAuthProvider(provider)) {
+    return NextResponse.redirect(new URL("/connections?error=provider", request.url));
+  }
+
+  try {
+    requireTokenEncryptionKey();
+    const code = requestUrl.searchParams.get("code");
+    await validateOAuthState(provider, requestUrl.searchParams.get("state"));
+
+    if (!code) {
+      throw new Error("Missing OAuth code.");
+    }
+
+    if (provider === "meta") {
+      await handleMetaCallback(code);
+    } else if (provider === "x") {
+      await handleXCallback(code);
+    } else {
+      await handleYouTubeCallback(code);
+    }
+
+    await clearOAuthCookies(provider);
+    return NextResponse.redirect(
+      new URL(`/connections?connected=${provider}`, request.url),
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "OAuth callback failed.";
+    console.error(`[social:oauth:callback:${provider}] ${message}`);
+    await clearOAuthCookies(provider);
+    return NextResponse.redirect(new URL(`/connections?error=${provider}`, request.url));
+  }
+}

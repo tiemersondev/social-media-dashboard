@@ -2,123 +2,112 @@
 
 ## Etapa atual
 
-Projeto Next.js inicializado e validado. A aplicacao base compila com TypeScript, Tailwind CSS e App Router.
-
-## Insumos analisados
-
-- `README (2).md`: desafio Frontend Mentor "Social media dashboard with theme switcher".
-- `style-guide.md`: tokens oficiais de layout, cores e tipografia.
-- Imagens fornecidas no chat: layouts mobile e desktop em tema claro e escuro.
+Projeto Next.js com App Router, TypeScript e Tailwind CSS. O dashboard visual do desafio Frontend Mentor foi preservado. A camada social agora possui OAuth real, persistencia Prisma/PostgreSQL para producao, criptografia de tokens, refresh automatico quando o provider entrega refresh token, snapshots de metricas e fallback mock apenas quando `SOCIAL_DATA_MODE=mock`.
 
 ## Stack acordada
 
 - Next.js com App Router. Versao instalada no lockfile: 16.2.9.
 - TypeScript.
 - Tailwind CSS.
+- Prisma 6 com PostgreSQL para persistencia de producao.
 - Componentes React modulares e tipados.
+- Route Handlers em `src/app/api` para OAuth e APIs internas.
+- Funcoes server-only em `src/lib/social` para tokens, providers, snapshots e agregacao.
 
-## Requisitos de produto
+## Arquitetura de conexoes sociais
 
-- Dashboard responsiva para mobile a partir de 320px, com referencia visual em 375px.
-- Layout desktop alinhado ao design em 1440px.
-- Alternancia entre tema claro e escuro.
-- Estados de hover para elementos interativos.
-- Fidelidade visual aos cards, espacamentos, cores, tipografia e hierarquia das imagens.
+- `src/app/page.tsx`: pagina inicial de login/conexao social.
+- `src/app/login/page.tsx`: rota explicita para a mesma experiencia de login.
+- `src/app/dashboard/page.tsx`: dashboard com os cards de metricas.
+- `src/app/connections/page.tsx`: pagina de gerenciamento de conexoes.
+- `src/app/api/auth/social/[provider]/start/route.ts`: inicia OAuth para `meta`, `x` e `youtube`.
+- `src/app/api/auth/social/[provider]/callback/route.ts`: valida `state`, troca `code` por tokens reais, salva tokens criptografados e dispara a primeira coleta.
+- `src/app/api/auth/social/[provider]/disconnect/route.ts`: remove tokens e snapshots locais do provider.
+- `src/app/api/social/summary/route.ts`: retorna resumo seguro do dashboard, sem tokens.
+- `src/app/api/social/sync/route.ts`: forca sincronizacao manual, aceita `provider`, aplica rate limit simples e retorna status resumido.
 
-## Diretrizes visuais extraidas
+## Persistencia de producao
 
-- Fonte principal: Inter, pesos 400 e 700.
-- Fundo com padrao superior horizontal arredondado no rodape do bloco de topo.
-- Tema escuro:
-  - Background geral: `hsl(230, 17%, 14%)`.
-  - Background superior: `hsl(232, 19%, 15%)`.
-  - Cards: `hsl(228, 28%, 20%)`.
-  - Texto secundario: `hsl(230, 22%, 74%)`.
-  - Texto principal: branco.
-- Tema claro:
-  - Background geral: branco.
-  - Background superior: `hsl(225, 100%, 98%)`.
-  - Cards: `hsl(227, 47%, 96%)`.
-  - Texto secundario: `hsl(228, 12%, 44%)`.
-  - Texto principal: `hsl(230, 17%, 14%)`.
-- Cores de marca:
-  - Facebook: `hsl(208, 92%, 53%)`.
-  - Twitter: `hsl(203, 89%, 53%)`.
-  - Instagram: gradiente `hsl(37, 97%, 70%)`, `hsl(5, 77%, 71%)`, `hsl(329, 70%, 58%)`.
-  - YouTube: `hsl(348, 97%, 39%)`.
-- Indicadores:
-  - Crescimento: `hsl(163, 72%, 41%)`.
-  - Queda: `hsl(356, 69%, 56%)`.
+- `prisma/schema.prisma` define `SocialAccount` e `SocialMetricSnapshot`.
+- `src/lib/db.ts` cria um Prisma Client singleton server-side.
+- `src/lib/social/token-store.ts` escolhe automaticamente:
+  - `PrismaSocialTokenStore` quando `DATABASE_URL` existe.
+  - `LocalFileSocialTokenStore` apenas quando nao ha `DATABASE_URL`, para desenvolvimento local.
+- `SocialAccount.userId` esta preparado como opcional para uma futura camada multiusuario.
+- `.social-tokens.json` e `.social-metric-snapshots.json` continuam ignorados pelo Git e nao devem ser usados em producao.
 
-## Mapeamento visual das imagens
+## Criptografia dos tokens
 
-### Desktop
+- `src/lib/social/token-crypto.ts` usa AES-256-GCM com IV aleatorio de 12 bytes e chave derivada de `TOKEN_ENCRYPTION_KEY`.
+- Access token e refresh token sao criptografados antes de persistir.
+- Tokens nunca sao enviados para componentes client, rotas JSON ou logs.
+- `TOKEN_ENCRYPTION_KEY` e obrigatorio quando `SOCIAL_DATA_MODE=api`; o erro e explicito se estiver ausente.
 
-- Container central com largura maxima aproximada de 1110px.
-- Header em duas colunas: titulo/subtitulo a esquerda e toggle a direita.
-- Grade principal com 4 cards grandes em linha.
-- Secao "Overview - Today" com grade de 4 colunas por 2 linhas.
-- Cards com raio discreto, fundo uniforme e hover levemente mais claro.
-- Topo colorido nos cards principais com barra de aproximadamente 4px.
+## OAuth real
 
-### Mobile
+- Meta usa `/api/auth/social/meta/start` e `/callback`, valida `state`, busca Pages, salva `facebook` com Page Access Token e salva `instagram` quando ha conta Business/Creator vinculada.
+- X usa OAuth 2.0 Authorization Code Flow com PKCE, cookies HttpOnly para `state` e `code_verifier`, escopos `users.read tweet.read offline.access` e salva refresh token quando retornado.
+- YouTube usa Google OAuth com `access_type=offline` e `prompt=consent`, busca o canal autenticado e salva o canal como conexao `youtube`.
 
-- Layout em coluna unica.
-- Header empilhado, com divisor horizontal entre titulo e toggle.
-- Cards principais e cards de overview ocupam toda a largura disponivel.
-- Espacamento vertical generoso entre grupos.
+## Refresh token
 
-## Componentes planejados
+- `src/lib/social/oauth/refresh-token.ts` renova tokens de X e YouTube quando `expiresAt` esta expirado ou a menos de 5 minutos de expirar.
+- O novo access token e criptografado e salvo.
+- Se o refresh falha ou nao existe refresh token, a conexao e marcada como `expired`.
+- Meta/Facebook/Instagram usam o token de Page retornado pela Meta; quando expirar sem refresh token, a UI pede reconexao.
 
-- `ThemeProvider` ou controle client-side equivalente para alternar tema.
-- `DashboardHeader`: titulo, total de seguidores e toggle de tema.
-- `ThemeToggle`: switch acessivel com estado claro/escuro.
-- `StatCard`: cards principais de Facebook, Twitter, Instagram e YouTube.
-- `OverviewCard`: cards menores de metricas diarias.
-- `SocialIcon`: camada simples para renderizar icones oficiais a partir dos assets.
-- Dados centralizados em arquivo tipado, por exemplo `data/dashboard.ts`.
+## Snapshots de metricas
 
-## Arquitetura inicial prevista
+- Providers coletam dados reais e salvam `SocialMetricSnapshot`.
+- `/dashboard` le snapshot recente para evitar chamada externa a cada render.
+- O cache server-side/snapshot usa janela curta de 5 minutos.
+- `/api/social/sync` permite sincronizacao manual, mas evita nova coleta se sincronizou ha menos de 1 minuto.
+- Falha em uma rede nao derruba o dashboard inteiro; dados de outras redes continuam aparecendo.
 
-- `src/app/layout.tsx`: layout raiz, fonte Inter e metadados.
-- `src/app/page.tsx`: composicao da dashboard.
-- `src/app/globals.css`: tokens CSS, Tailwind base e estilos globais.
-- `src/components/dashboard/*`: componentes especificos da dashboard.
-- `src/data/dashboard.ts`: dados dos cards.
-- `public/images/*`: assets de icones quando disponiveis ou recriados se necessario.
+## Providers e metricas reais
 
-## Decisoes iniciais
+- Facebook: busca Page basica (`id`, `name`, `followers_count`, `fan_count`, `link`) e tenta Page Insights (`page_impressions`, `page_views_total`) quando permitido.
+- Instagram: busca conta profissional (`username`, `followers_count`, `media_count`) e tenta insights (`impressions`, `reach`, `profile_views`) quando permitido.
+- X/Twitter: renova token se necessario, busca usuario com `public_metrics` e usa `followers_count`, `following_count` e `tweet_count`.
+- YouTube: renova token se necessario, usa `channels.list` com `snippet,statistics` e tenta YouTube Analytics para `views`, `likes` e `comments`.
 
-- A estrutura Next.js foi criada manualmente no diretorio atual para preservar os arquivos existentes.
-- As dependencias foram instaladas com `npm.cmd install`, pois `npm` via PowerShell estava bloqueado pela politica de execucao de scripts.
-- `next/font/google` nao sera usado por enquanto porque o build falhou ao tentar buscar a fonte Inter no Google Fonts em ambiente restrito. O projeto mantem `--font-inter` com pilha `Inter, Arial, sans-serif` e pode receber fonte local posteriormente.
-- O tema sera tratado via classe no elemento raiz para permitir Tailwind com variantes `dark:`.
-- Os dados serao estaticos e tipados, pois o desafio e visual/interativo e nao requer API.
-- O layout sera mobile-first, com breakpoints para `md` e `lg`.
+Metricas dependentes de permissao, revisao de app ou plano de API retornam `null`; a UI mostra `--` e registra status parcial sem inventar dados.
 
-## Estrutura criada
+## Estrategia de dados
 
-- `package.json`: scripts `dev`, `build`, `start` e `lint`.
-- `package-lock.json`: lockfile das dependencias instaladas.
-- `next.config.ts`: configuracao base do Next.js.
-- `tsconfig.json`: TypeScript estrito com alias `@/*`.
-- `tailwind.config.ts`: Tailwind com `darkMode: "class"`, fonte e cores sociais iniciais.
-- `postcss.config.js`: Tailwind e Autoprefixer.
-- `eslint.config.mjs`: ESLint flat config com presets do Next e TypeScript.
-- `src/app/layout.tsx`: layout raiz e metadata.
-- `src/app/page.tsx`: placeholder inicial da dashboard.
-- `src/app/globals.css`: tokens CSS de tema claro/escuro e utilitarios Tailwind.
-- `src/components/dashboard/.gitkeep`: pasta reservada para componentes.
-- `src/data/.gitkeep`: pasta reservada para dados tipados.
+- `SOCIAL_DATA_MODE=mock`: usa `src/data/mock-dashboard.ts` e nao chama APIs externas.
+- `SOCIAL_DATA_MODE=api`: usa conexoes reais e snapshots; se nao houver conexoes, retorna dashboard vazio com CTA para `/connections`.
+- Nao ha fallback mock silencioso quando existe conexao real e a API falha.
+- `totalFollowers` soma apenas numeros reais disponiveis.
+
+## Variaveis de ambiente
+
+`.env.example` contem:
+
+- `SOCIAL_DATA_MODE=api`
+- `APP_BASE_URL`
+- `DATABASE_URL`
+- `TOKEN_ENCRYPTION_KEY`
+- Credenciais OAuth de Meta, X/Twitter e Google/YouTube.
+
+Segredos nao usam `NEXT_PUBLIC_*`.
+
+## Limitacoes conhecidas por plataforma
+
+- Meta/Facebook/Instagram: permissoes como `read_insights`, `instagram_manage_insights`, `business_management` e acesso a Page/conta profissional podem exigir revisao do app.
+- Instagram: insights completos exigem conta Business/Creator vinculada a uma Page.
+- X/Twitter: metricas e endpoints podem depender do plano da API.
+- YouTube: analytics detalhado depende do escopo e da YouTube Analytics API; o provider usa estatisticas basicas quando Analytics nao esta disponivel.
 
 ## Validacoes executadas
 
+- `npm.cmd install prisma @prisma/client`: executado inicialmente, depois ajustado.
+- `npm.cmd install prisma@6 @prisma/client@6`: aprovado.
+- `npx.cmd prisma generate`: aprovado apos permissao de rede para baixar o engine.
+- `npx.cmd prisma validate`: aprovado com `DATABASE_URL` ficticia para validacao de schema.
 - `npm.cmd run lint`: aprovado.
 - `npm.cmd run build`: aprovado.
-- `npm.cmd run dev -- --hostname 127.0.0.1 --port 3000`: servidor iniciado e validado com resposta HTTP 200.
 
-## Pendencias antes da proxima etapa
+## Proxima etapa recomendada
 
-- Implementar layout base com header, fundo superior e toggle de tema.
-- Confirmar se os assets oficiais existem em outro local nao listado; no momento, o repositorio nao contem pasta `images` ou `design`.
-- Avaliar inclusao de fonte Inter local caso a fidelidade tipografica exija independencia total do ambiente do usuario.
+Configurar `DATABASE_URL`, `TOKEN_ENCRYPTION_KEY` e credenciais reais em `.env.local`, aplicar o schema em um PostgreSQL de desenvolvimento/producao e validar os fluxos OAuth ponta a ponta com contas reais.

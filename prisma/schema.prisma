@@ -1,0 +1,42 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model SocialAccount {
+  id                    String    @id @default(cuid())
+  userId                String?
+  provider              String
+  providerAccountId     String?
+  username              String?
+  displayName           String?
+  profileUrl            String?
+  accessTokenEncrypted  String
+  refreshTokenEncrypted String?
+  tokenType             String?
+  scopes                String?
+  status                String    @default("connected")
+  errorMessage          String?
+  expiresAt             DateTime?
+  lastSyncedAt          DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@unique([provider, providerAccountId])
+  @@index([provider])
+  @@index([status])
+}
+
+model SocialMetricSnapshot {
+  id          String   @id @default(cuid())
+  provider    String
+  accountId   String?
+  data        Json
+  collectedAt DateTime @default(now())
+
+  @@index([provider, collectedAt])
+}
